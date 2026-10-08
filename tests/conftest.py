@@ -3,7 +3,7 @@
 Tests marked with `db` run against a real PostgreSQL in a separate database
 (`<name>_test`), created fresh for the test session. Set TEST_DATABASE_URL to
 point elsewhere. Without a reachable server those tests are skipped, so the
-unit tests still run anywhere.
+unit tests still run anywhere; with REQUIRE_DB=1 (set in CI) they fail instead.
 """
 
 import os
@@ -28,7 +28,10 @@ def test_database():
     try:
         admin = psycopg.connect(_admin_url(TEST_URL), autocommit=True, connect_timeout=3)
     except psycopg.OperationalError as err:
-        pytest.skip(f"PostgreSQL not reachable ({err.__class__.__name__}); start it with docker compose up -d")
+        message = f"PostgreSQL not reachable ({err.__class__.__name__})"
+        if os.environ.get("REQUIRE_DB") == "1":  # CI: a missing database must fail, not skip
+            pytest.fail(message)
+        pytest.skip(f"{message}; start it with docker compose up -d db")
     with admin:
         admin.execute(sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name)))
         admin.execute(sql.SQL("CREATE DATABASE {}").format(sql.Identifier(name)))

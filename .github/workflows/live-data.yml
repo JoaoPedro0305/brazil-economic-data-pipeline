@@ -1,0 +1,72 @@
+name: live data
+
+# The test suite mocks the Central Bank API. This workflow runs the real
+# pipeline against the live API, from 2000 to today, on an empty database,
+# so a change in the API format or a real series breaking a quality rule
+# shows up here.
+on:
+  schedule:
+    - cron: "0 12 * * 1"   # Mondays, 09:00 Brasília time
+  push:
+    branches: [main]
+    paths:                 # only when the pipeline itself changes
+      - "pipeline/**"
+      - "sql/**"
+      - "requirements.txt"
+      - ".github/workflows/live-data.yml"
+  workflow_dispatch:
+
+jobs:
+  full-history:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: pipeline
+          POSTGRES_PASSWORD: pipeline
+          POSTGRES_DB: economy
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pipeline -d economy"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://pipeline:pipeline@localhost:5432/economy
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the pipeline on the live API
+        run: python -m pipeline.run --full
+
+      - name: Publish the quality report on the run page
+        if: always()
+        run: |
+          if [ -f reports/quality/latest.md ]; then
+            cat reports/quality/latest.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "No quality report was produced." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Keep report and log as artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-run
+          path: |
+            reports/quality/
+            logs/pipeline.log
+          if-no-files-found: ignore

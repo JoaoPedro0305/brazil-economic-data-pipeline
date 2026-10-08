@@ -1,5 +1,7 @@
 # Brazil Economic Data Pipeline
 
+[![tests](https://github.com/JoaoPedro0305/brazil-economic-data-pipeline/actions/workflows/tests.yml/badge.svg)](https://github.com/JoaoPedro0305/brazil-economic-data-pipeline/actions/workflows/tests.yml) [![live data](https://github.com/JoaoPedro0305/brazil-economic-data-pipeline/actions/workflows/live-data.yml/badge.svg)](https://github.com/JoaoPedro0305/brazil-economic-data-pipeline/actions/workflows/live-data.yml)
+
 A daily data pipeline that collects Brazilian economic indicators from the Central Bank's public API, cleans them, loads them into PostgreSQL and checks their quality automatically.
 
 > Status: work in progress
@@ -124,6 +126,13 @@ usd_brl blocked: quality checks failed: value_range (1), max_jump (2)
 - The container runs as an unprivileged user, and `.gitattributes` keeps LF line endings on the scripts that run inside it, so a Windows checkout does not break them.
 
 The schedule was verified by running the same image with an every-minute crontab: supercronic fired the job, the pipeline completed with 24/24 quality checks passing, and the run appeared in `pipeline_runs`.
+
+## Continuous integration
+
+Two GitHub Actions workflows:
+
+- **[`tests`](.github/workflows/tests.yml)**, on every push and pull request: the full test suite on Python 3.11, 3.12 and 3.13 against a real PostgreSQL service container, plus a build of the Docker image (which re-verifies the supercronic checksum). Locally, database tests are skipped when PostgreSQL is not running; in CI `REQUIRE_DB=1` turns that skip into a failure, so a broken database service can never leave the badge green with half the tests silently skipped.
+- **[`live data`](.github/workflows/live-data.yml)**, weekly and whenever the pipeline code changes: the test suite mocks the Central Bank API, so this job runs the real pipeline against the live API from 2000 to today on an empty database. If the API changes its format or real data starts breaking a quality rule, it fails here. The quality report is published on the run page and kept as an artifact.
 
 ## How to run
 

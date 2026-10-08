@@ -5,11 +5,12 @@ import re
 from datetime import date, timedelta
 from urllib.parse import parse_qs, urlparse
 
+import psycopg
 import requests
 import responses
 
 from pipeline.config import Series
-from pipeline.run import run
+from pipeline.run import LOCK_KEY, run
 
 USD = Series(1, "usd_brl", "USD/BRL", "BRL per USD", "business_daily")
 IPCA = Series(433, "ipca_monthly", "IPCA", "% per month", "monthly")
@@ -158,3 +159,25 @@ def test_blocked_incremental_load_keeps_previous_good_data(conn, tmp_path):
     assert summary.status == "failed"
     after = conn.execute("SELECT count(*), max(ref_date) FROM observations WHERE series_id = 'usd_brl'").fetchone()
     assert after == before   # the bad day was rolled back, the history is untouched
+
+
+@responses.activate
+def test_concurrent_run_is_skipped(conn, tmp_path, test_database):
+    fake_api()
+    with psycopg.connect(test_database) as other:
+        other.execute("SELECT pg_advisory_lock(%s)", (LOCK_KEY,))
+        summary = go(conn, tmp_path)
+        assert summary.status == "skipped"
+        assert conn.execute("SELECT count(*) FROM pipeline_runs").fetchone()[0] == 0
+        other.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
+
+    assert go(conn, tmp_path).status == "success"   # lock released: runs normally again
+
+
+@responses.activate
+def test_lock_is_released_after_a_failed_run(conn, tmp_path):
+    fake_api(failing_codes={1, 433})
+    assert go(conn, tmp_path).status == "failed"
+    responses.reset()
+    fake_api()
+    assert go(conn, tmp_path).status == "success"

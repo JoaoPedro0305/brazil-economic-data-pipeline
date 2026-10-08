@@ -40,7 +40,7 @@ On the full history (2000 to today) the API data came back clean: 16,822 rows, n
 
 ## Database
 
-PostgreSQL 17 runs in Docker (`docker-compose.yml`, host port 5433). The schema is in [`sql/schema.sql`](sql/schema.sql) and is applied by the pipeline itself, so it is safe to run more than once.
+PostgreSQL 17 runs in Docker (`docker-compose.yml`, host port 5433 so it does not clash with a local Postgres). The schema is in [`sql/schema.sql`](sql/schema.sql) and is applied by the pipeline itself, so it is safe to run more than once.
 
 | Table | Contents |
 |---|---|
@@ -70,6 +70,7 @@ Loading the full history twice:
 
 - **Incremental:** the first run fetches the full history; later runs start 30 days (daily series) or 90 days (IPCA) before the last loaded date. Re-fetching that window is how revisions by the Central Bank get picked up, and the idempotent load means it never duplicates rows. `--full` re-fetches everything.
 - **Isolated failures:** if one series fails (say, the API is down for the dollar), the others are still loaded and committed. The run is marked `failed`, the error is recorded and the process exits with code 1, so a scheduler can alert on it.
+- **One run at a time:** a PostgreSQL advisory lock makes a second, concurrent run (a manual run while the scheduled one is going) skip instead of racing the first one on the same rows.
 - **Run log:** each execution is recorded in `pipeline_runs` (status, timings, totals, per-series details as JSON), `quality_results`, `logs/pipeline.log` and `reports/quality/`.
 
 | Run | Range fetched | Rows extracted | Time |
@@ -107,14 +108,41 @@ usd_brl blocked: quality checks failed: value_range (1), max_jump (2)
   - 2026-10-07: 5.0 -> 55.0 (+1000.0 %)
 ```
 
+## Daily schedule
+
+`docker compose up -d` starts two containers:
+
+| Container | What it does |
+|---|---|
+| `economy_db` | PostgreSQL 17, data in a named volume |
+| `economy_pipeline` | runs the pipeline once on startup (the first run loads the full history), then every day at **19:00 Brasília time** |
+
+- **Scheduler:** [supercronic](https://github.com/aptible/supercronic), a cron built for containers (regular `cron` drops environment variables and hides job output). The schedule is a normal crontab in [`docker/crontab`](docker/crontab). 19:00 is after the day's USD rate (~13:00) and any Copom decision (~18:30) are published; a day missed because the API was down is recovered by the next run's lookback window.
+- **Supply chain:** the supercronic binary is pinned to a version and verified against the SHA-256 published on its release before the image is built.
+- **Health check:** `python -m pipeline.health` exits 1 when the last successful run is older than 26 hours. It is the container's Docker healthcheck, so `docker ps` shows `unhealthy` if daily runs stop succeeding.
+- **Logs and reports on the host:** `data/`, `logs/` and `reports/` are mounted from the project folder, so each run's raw files, `logs/pipeline.log` and quality reports are visible without entering the container. Job output also goes to `docker compose logs pipeline`.
+- The container runs as an unprivileged user, and `.gitattributes` keeps LF line endings on the scripts that run inside it, so a Windows checkout does not break them.
+
+The schedule was verified by running the same image with an every-minute crontab: supercronic fired the job, the pipeline completed with 24/24 quality checks passing, and the run appeared in `pipeline_runs`.
+
 ## How to run
+
+With Docker (database + daily pipeline):
+
+```bash
+docker compose up -d --build                       # first start loads the full history
+docker compose logs -f pipeline                    # follow the runs
+docker compose run --rm pipeline python -m pipeline.run   # extra run on demand
+```
+
+Local development and tests:
 
 ```bash
 python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
-docker compose up -d             # PostgreSQL on localhost:5433
-python -m pipeline.run           # first run loads the full history
+source .venv/bin/activate        # Windows: .venv\Scriptsctivate
+pip install -r requirements-dev.txt
+docker compose up -d db          # PostgreSQL on localhost:5433
+python -m pipeline.run
 pytest                           # database tests use a separate economy_test database
 ```
 

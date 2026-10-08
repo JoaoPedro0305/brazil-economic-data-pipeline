@@ -1,0 +1,5 @@
+# Daily at 19:00 Brasília time: the day's USD rate (~13:00) and any Copom
+# decision (~18:30) are already published. A missed day is recovered by the
+# next run's lookback window.
+CRON_TZ=America/Sao_Paulo
+0 19 * * * cd /app && python -m pipeline.run

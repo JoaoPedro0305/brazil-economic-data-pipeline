@@ -6,6 +6,8 @@
   If an `error` check fails, the series is rolled back: bad data never lands.
 - A failing series does not stop the others; the run is then marked failed
   and the process exits with code 1.
+- Only one run at a time: a PostgreSQL advisory lock makes a second, concurrent
+  run (say, a manual run while the scheduled one is going) skip instead.
 - Every run is recorded in pipeline_runs, quality_results, logs/pipeline.log
   and a Markdown report in reports/quality/.
 
@@ -36,6 +38,8 @@ from pipeline.report import save_checks, write_report
 from pipeline.transform import save_clean, transform
 
 log = logging.getLogger("pipeline")
+
+LOCK_KEY = 20_000_101  # arbitrary id for this pipeline's advisory lock
 
 
 class QualityError(Exception):
@@ -140,6 +144,20 @@ def run(
     run_at = datetime.now()
 
     ensure_schema(conn)
+    locked = conn.execute("SELECT pg_try_advisory_lock(%s)", (LOCK_KEY,)).fetchone()[0]
+    conn.commit()
+    if not locked:
+        log.warning("another run is in progress; skipping this one")
+        return RunSummary(run_id=0, status="skipped")
+    try:
+        return _run_locked(conn, series, today, full, session, raw_dir, clean_dir, report_dir, sleep, run_at)
+    finally:
+        conn.rollback()
+        conn.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
+        conn.commit()
+
+
+def _run_locked(conn, series, today, full, session, raw_dir, clean_dir, report_dir, sleep, run_at) -> RunSummary:
     summary = RunSummary(start_run(conn))
     log.info("run %d started (%s)", summary.run_id, "full" if full else "incremental")
 
@@ -190,7 +208,7 @@ def main() -> None:
     setup_logging()
     with connect(database_url()) as conn:
         summary = run(conn, full=args.full)
-    sys.exit(0 if summary.status == "success" else 1)
+    sys.exit(0 if summary.status in ("success", "skipped") else 1)
 
 
 if __name__ == "__main__":

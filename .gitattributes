@@ -1,0 +1,5 @@
+# Files executed inside the Linux container must keep LF line endings, even
+# when the repository is checked out on Windows (CRLF breaks the shebang).
+*.sh           text eol=lf
+docker/crontab text eol=lf
+Dockerfile     text eol=lf

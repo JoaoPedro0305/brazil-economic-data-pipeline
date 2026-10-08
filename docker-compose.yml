@@ -16,6 +16,23 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    restart: unless-stopped
+
+  pipeline:
+    build: .
+    container_name: economy_pipeline
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Inside the Docker network the database is "db" on the default port.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-pipeline}:${POSTGRES_PASSWORD:-pipeline}@db:5432/${POSTGRES_DB:-economy}
+    volumes:
+      # Raw/clean files, logs and quality reports stay visible on the host.
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./reports:/app/reports
+    restart: unless-stopped
 
 volumes:
   pgdata:

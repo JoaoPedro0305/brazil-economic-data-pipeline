@@ -18,7 +18,7 @@ NO_SLEEP = lambda seconds: None  # noqa: E731
 URL_RE = re.compile(r"https://api\.bcb\.gov\.br/dados/serie/bcdata\.sgs\.(\d+)/dados.*")
 
 
-def fake_api(failing_codes=()):
+def fake_api(failing_codes=(), bad_values=None):
     """Answer with one record per business day (USD) or month (IPCA) in the requested window."""
     requested = []
 
@@ -35,7 +35,8 @@ def fake_api(failing_codes=()):
             days = [d for d in days if d.day == 1]
         else:
             days = [d for d in days if d.weekday() < 5]
-        body = [{"data": d.strftime("%d/%m/%Y"), "valor": "5.0000"} for d in days]
+        bad = (bad_values or {}).get(code, {})
+        body = [{"data": d.strftime("%d/%m/%Y"), "valor": bad.get(d, "5.0000")} for d in days]
         if not body:
             return 404, {}, '{"erro": {"detail": "Value(s) not found"}}'
 
@@ -47,7 +48,8 @@ def fake_api(failing_codes=()):
 
 def go(conn, tmp_path, **kwargs):
     return run(conn, series=(USD, IPCA), today=TODAY, session=requests.Session(),
-               raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", sleep=NO_SLEEP, **kwargs)
+               raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", report_dir=tmp_path / "reports",
+               sleep=NO_SLEEP, **kwargs)
 
 
 @responses.activate
@@ -112,5 +114,47 @@ def test_failing_series_does_not_stop_the_others(conn, tmp_path):
 def test_failure_in_later_series_keeps_earlier_series(conn, tmp_path):
     fake_api(failing_codes={1})
     run(conn, series=(IPCA, USD), today=TODAY, session=requests.Session(),
-        raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", sleep=NO_SLEEP)
+        raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", report_dir=tmp_path / "reports", sleep=NO_SLEEP)
     assert conn.execute("SELECT count(*) FROM observations WHERE series_id = 'ipca_monthly'").fetchone()[0] > 0
+
+
+@responses.activate
+def test_run_writes_quality_results_and_report(conn, tmp_path):
+    fake_api()
+    summary = go(conn, tmp_path)
+    assert conn.execute("SELECT count(*), bool_and(passed) FROM quality_results").fetchone() == (16, True)
+    report = (tmp_path / "reports" / "latest.md").read_text(encoding="utf-8")
+    assert f"Run #{summary.run_id}" in report and "16 of 16 checks passed" in report
+
+
+@responses.activate
+def test_bad_value_blocks_the_series_and_nothing_lands(conn, tmp_path):
+    fake_api(bad_values={1: {date(2026, 10, 7): "55.0000"}})
+    summary = go(conn, tmp_path)
+
+    assert summary.status == "failed"
+    assert "quality checks failed: value_range (1), max_jump (2)" in summary.details["usd_brl"]["error"]
+    loaded = dict(conn.execute("SELECT series_id, count(*) FROM observations GROUP BY 1").fetchall())
+    assert "usd_brl" not in loaded and loaded["ipca_monthly"] > 0      # IPCA was fine and is kept
+    failed = conn.execute(
+        "SELECT check_name, failures, sample->>0 FROM quality_results WHERE series_id = 'usd_brl' AND NOT passed ORDER BY 1"
+    ).fetchall()
+    assert failed == [("max_jump", 2, "2026-10-07: 5.0 -> 55.0 (+1000.0 %)"), ("value_range", 1, "2026-10-07: 55.0")]
+    report = (tmp_path / "reports" / "latest.md").read_text(encoding="utf-8")
+    assert "**usd_brl / value_range** (load blocked)" in report
+
+
+@responses.activate
+def test_blocked_incremental_load_keeps_previous_good_data(conn, tmp_path):
+    fake_api()
+    go(conn, tmp_path)
+    before = conn.execute("SELECT count(*), max(ref_date) FROM observations WHERE series_id = 'usd_brl'").fetchone()
+
+    responses.reset()
+    fake_api(bad_values={1: {date(2026, 10, 9): "55.0000"}})
+    summary = run(conn, series=(USD,), today=date(2026, 10, 9), session=requests.Session(),
+                  raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", report_dir=tmp_path / "reports", sleep=NO_SLEEP)
+
+    assert summary.status == "failed"
+    after = conn.execute("SELECT count(*), max(ref_date) FROM observations WHERE series_id = 'usd_brl'").fetchone()
+    assert after == before   # the bad day was rolled back, the history is untouched

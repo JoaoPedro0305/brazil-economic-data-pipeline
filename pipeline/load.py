@@ -90,6 +90,15 @@ def load_observations(conn: psycopg.Connection, series: Series, clean: pd.DataFr
     return LoadResult(inserted, updated, len(clean) - inserted - updated)
 
 
+def read_series(conn: psycopg.Connection, series: Series) -> pd.DataFrame:
+    """Full series as currently visible to this connection (including uncommitted rows)."""
+    rows = conn.execute(
+        "SELECT ref_date, value::float8 FROM observations WHERE series_id = %s ORDER BY ref_date",
+        (series.name,),
+    ).fetchall()
+    return pd.DataFrame(rows, columns=["ref_date", "value"])
+
+
 def last_loaded_date(conn: psycopg.Connection, series: Series) -> date | None:
     row = conn.execute(
         "SELECT max(ref_date) FROM observations WHERE series_id = %s", (series.name,)

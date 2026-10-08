@@ -10,6 +10,7 @@ RAW_DIR = ROOT / "data" / "raw"
 CLEAN_DIR = ROOT / "data" / "clean"
 
 LOG_DIR = ROOT / "logs"
+REPORT_DIR = ROOT / "reports" / "quality"
 
 # History starts here on the first run; later runs are incremental.
 START_DATE = date(2000, 1, 1)

@@ -39,7 +39,7 @@ def test_database():
 def conn(test_database):
     """A connection to an empty schema: tables are recreated for every test."""
     with psycopg.connect(test_database) as conn:
-        conn.execute("DROP TABLE IF EXISTS pipeline_runs, revisions, observations, series CASCADE")
+        conn.execute("DROP TABLE IF EXISTS quality_results, pipeline_runs, revisions, observations, series CASCADE")
         conn.commit()
         ensure_schema(conn)
         yield conn

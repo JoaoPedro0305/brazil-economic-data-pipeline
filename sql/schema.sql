@@ -40,3 +40,18 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     details      JSONB   NOT NULL DEFAULT '{}'::jsonb,
     error        TEXT
 );
+
+-- Result of every quality check, for every series, in every run.
+-- No foreign key to series: a series whose first load was blocked has no row there.
+CREATE TABLE IF NOT EXISTS quality_results (
+    run_id      BIGINT  NOT NULL REFERENCES pipeline_runs (run_id),
+    series_id   TEXT    NOT NULL,
+    check_name  TEXT    NOT NULL,
+    severity    TEXT    NOT NULL CHECK (severity IN ('error', 'warn')),
+    passed      BOOLEAN NOT NULL,
+    failures    INTEGER NOT NULL,
+    detail      TEXT    NOT NULL,
+    sample      JSONB   NOT NULL DEFAULT '[]'::jsonb,
+    checked_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (run_id, series_id, check_name)
+);

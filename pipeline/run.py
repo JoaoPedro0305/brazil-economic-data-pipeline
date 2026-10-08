@@ -1,10 +1,13 @@
-"""Run the whole pipeline: extract -> transform -> load, for every series.
+"""Run the whole pipeline: extract -> transform -> load -> quality, for every series.
 
 - First run: full history from START_DATE. Later runs: incremental, starting
   LOOKBACK_DAYS before the last loaded date to pick up revisions.
+- Quality checks run on the full series after loading it, before committing.
+  If an `error` check fails, the series is rolled back: bad data never lands.
 - A failing series does not stop the others; the run is then marked failed
   and the process exits with code 1.
-- Every run is recorded in the pipeline_runs table and in logs/pipeline.log.
+- Every run is recorded in pipeline_runs, quality_results, logs/pipeline.log
+  and a Markdown report in reports/quality/.
 
 Usage:
     python -m pipeline.run            # incremental
@@ -24,13 +27,19 @@ import requests
 from psycopg.types.json import Jsonb
 
 from pipeline.config import (
-    CLEAN_DIR, LOG_DIR, LOOKBACK_DAYS, RAW_DIR, SERIES, START_DATE, Series, database_url,
+    CLEAN_DIR, LOG_DIR, LOOKBACK_DAYS, RAW_DIR, REPORT_DIR, SERIES, START_DATE, Series, database_url,
 )
 from pipeline.extract import fetch_series, save_raw
-from pipeline.load import connect, ensure_schema, last_loaded_date, load_observations
+from pipeline.load import connect, ensure_schema, last_loaded_date, load_observations, read_series
+from pipeline.quality import CheckResult, blocking_failures, check_series
+from pipeline.report import save_checks, write_report
 from pipeline.transform import save_clean, transform
 
 log = logging.getLogger("pipeline")
+
+
+class QualityError(Exception):
+    pass
 
 
 @dataclass
@@ -38,6 +47,8 @@ class RunSummary:
     run_id: int
     status: str = "running"
     details: dict = field(default_factory=dict)
+    checks: list[CheckResult] = field(default_factory=list)
+    report: Path | None = None
 
     def total(self, key: str) -> int:
         return sum(d.get(key, 0) for d in self.details.values())
@@ -72,7 +83,7 @@ def finish_run(conn: psycopg.Connection, summary: RunSummary, error: str | None)
     conn.commit()
 
 
-def run_series(conn, series: Series, today: date, run_at: datetime, full: bool,
+def run_series(conn, series: Series, today: date, run_at: datetime, full: bool, summary: RunSummary,
                session: requests.Session, raw_dir: Path, clean_dir: Path, sleep) -> dict:
     t0 = time.perf_counter()
     start = start_date_for(conn, series, full)
@@ -84,7 +95,20 @@ def run_series(conn, series: Series, today: date, run_at: datetime, full: bool,
     save_clean(series, result, run_at, clean_dir=clean_dir)
 
     loaded = load_observations(conn, series, result.clean)
+
+    # Check the full series as it would look after this load, before committing.
+    checks = check_series(read_series(conn, series), series, today)
+    summary.checks.extend(checks)
+    blocking = blocking_failures(checks)
+    if blocking:
+        conn.rollback()  # bad data never lands
+        save_checks(conn, summary.run_id, checks)
+        conn.commit()
+        raise QualityError("quality checks failed: " + ", ".join(f"{c.check} ({c.failures})" for c in blocking))
+
     conn.commit()  # persist this series now, so a later failure cannot roll it back
+    save_checks(conn, summary.run_id, checks)
+    conn.commit()
     return {
         "from": start.isoformat(),
         "to": today.isoformat(),
@@ -95,6 +119,7 @@ def run_series(conn, series: Series, today: date, run_at: datetime, full: bool,
         "inserted": loaded.inserted,
         "updated": loaded.updated,
         "unchanged": loaded.unchanged,
+        "quality_warnings": [c.check for c in checks if not c.passed],
         "seconds": round(time.perf_counter() - t0, 2),
     }
 
@@ -107,6 +132,7 @@ def run(
     session: requests.Session | None = None,
     raw_dir: Path = RAW_DIR,
     clean_dir: Path = CLEAN_DIR,
+    report_dir: Path = REPORT_DIR,
     sleep=time.sleep,
 ) -> RunSummary:
     today = today or date.today()
@@ -120,21 +146,29 @@ def run(
     errors = []
     for s in series:
         try:
-            d = run_series(conn, s, today, run_at, full, session, raw_dir, clean_dir, sleep)
+            d = run_series(conn, s, today, run_at, full, summary, session, raw_dir, clean_dir, sleep)
             summary.details[s.name] = d
             log.info("%s: %s..%s extracted %d, inserted %d, updated %d, unchanged %d, rejected %d (%.2fs)",
                      s.name, d["from"], d["to"], d["extracted"], d["inserted"], d["updated"],
                      d["unchanged"], d["rejected"], d["seconds"])
+            for w in d["quality_warnings"]:
+                log.warning("%s: quality warning on %s", s.name, w)
         except Exception as err:  # keep going with the other series
             conn.rollback()
             summary.details[s.name] = {"error": str(err)}
             errors.append(f"{s.name}: {err}")
-            log.exception("%s failed", s.name)
+            if isinstance(err, QualityError):
+                log.error("%s blocked: %s", s.name, err)
+            else:
+                log.exception("%s failed", s.name)
 
     summary.status = "failed" if errors else "success"
     finish_run(conn, summary, "; ".join(errors) or None)
-    log.info("run %d %s: inserted %d, updated %d, rejected %d", summary.run_id, summary.status,
-             summary.total("inserted"), summary.total("updated"), summary.total("rejected"))
+    if summary.checks:
+        summary.report = write_report(report_dir, summary.run_id, summary.status, run_at, summary.checks)
+    log.info("run %d %s: inserted %d, updated %d, rejected %d, quality %d/%d checks passed",
+             summary.run_id, summary.status, summary.total("inserted"), summary.total("updated"),
+             summary.total("rejected"), sum(c.passed for c in summary.checks), len(summary.checks))
     return summary
 
 

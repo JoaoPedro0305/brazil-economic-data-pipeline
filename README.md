@@ -48,6 +48,7 @@ PostgreSQL 17 runs in Docker (`docker-compose.yml`, host port 5433). The schema 
 | `observations` | the values; primary key `(series_id, ref_date)`, so the database itself rejects duplicate dates |
 | `revisions` | values the Central Bank changed after they were first loaded (old and new value) |
 | `pipeline_runs` | one row per execution: start, end, status, rows inserted/updated/rejected |
+| `quality_results` | the outcome of every quality check, for every series, in every run |
 
 **Idempotent load** (`pipeline/load.py`), one transaction per series:
 
@@ -65,16 +66,46 @@ Loading the full history twice:
 
 ## Running the pipeline
 
-`python -m pipeline.run` runs extract, transform and load for every series:
+`python -m pipeline.run` runs extract, transform, load and quality checks for every series:
 
 - **Incremental:** the first run fetches the full history; later runs start 30 days (daily series) or 90 days (IPCA) before the last loaded date. Re-fetching that window is how revisions by the Central Bank get picked up, and the idempotent load means it never duplicates rows. `--full` re-fetches everything.
 - **Isolated failures:** if one series fails (say, the API is down for the dollar), the others are still loaded and committed. The run is marked `failed`, the error is recorded and the process exits with code 1, so a scheduler can alert on it.
-- **Run log:** each execution is recorded in `pipeline_runs` (status, timings, totals, per-series details as JSON) and in `logs/pipeline.log`.
+- **Run log:** each execution is recorded in `pipeline_runs` (status, timings, totals, per-series details as JSON), `quality_results`, `logs/pipeline.log` and `reports/quality/`.
 
 | Run | Range fetched | Rows extracted | Time |
 |---|---|---|---|
 | Full history | 2000-01-01 to today | 16,822 | ~50s (API) + 1.2s (load) |
 | Daily incremental | last 30-90 days | ~58 | 0.7s |
+
+## Data quality
+
+Every run checks each series after loading it and **before committing** (`pipeline/quality.py`). If any `error` check fails, the series is rolled back, so bad data never reaches the database; the rest of the run continues. `warn` checks are reported but do not block.
+
+| Check | Severity | Rule |
+|---|---|---|
+| `required_values` | error | no missing dates or values |
+| `unique_dates` | error | one value per date |
+| `value_range` | error | Selic 0-50%, IPCA -3% to 5%, USD/BRL 1-10 |
+| `calendar` | error | USD only on weekdays, IPCA only on the 1st of a month |
+| `no_future_dates` | error | nothing after today |
+| `no_gaps` | error | Selic: no missing day. IPCA: no missing month. USD: never more than 3 weekdays in a row without a quote (holidays exist) |
+| `max_jump` | error | USD at most 15% between consecutive days, Selic 5 pp, IPCA 3 pp |
+| `freshness` | warn | latest value at most 5 days old (USD), 3 (Selic), 75 (IPCA, published ~10 days after month end) |
+
+**Thresholds come from the real history, with a margin.** Measured on 2000-2026: the biggest USD/BRL daily move was 9.33% (2008-10-08, financial crisis); the longest run of weekdays without a quote was 2 (Carnival); the biggest Selic move at one meeting was 3.00 pp (2002); IPCA never changed more than 1.71 pp from one month to the next. A guessed "5% per day" limit would have blocked real 2008 data. All 24 checks pass on the full history.
+
+**Each check is proven to catch its defect.** `tests/fixtures/quality/` holds a clean file and one copy per defect (missing value, duplicate date, a Saturday, an out-of-range value, a future date, a 5-weekday gap, a 23% jump, stale data). Each test asserts that exactly the right check fails and every other check stays quiet. The out-of-range value (10.20 next to ~9.10) is deliberately a jump smaller than 15%, so it only trips `value_range`.
+
+Results go to the `quality_results` table and to a Markdown report per run (`reports/quality/latest.md`). Example of a blocked load, from the end-to-end tests (a USD quote of 55.00):
+
+```
+usd_brl blocked: quality checks failed: value_range (1), max_jump (2)
+
+- usd_brl / value_range (load blocked): 1 value(s) outside [1, 10] BRL per USD
+  - 2026-10-07: 55.0
+- usd_brl / max_jump (load blocked): 2 change(s) bigger than 15.0%
+  - 2026-10-07: 5.0 -> 55.0 (+1000.0 %)
+```
 
 ## How to run
 

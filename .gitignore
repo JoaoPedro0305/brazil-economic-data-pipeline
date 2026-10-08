@@ -20,3 +20,6 @@ venv/
 Thumbs.db
 .vscode/
 .idea/
+
+# Quality reports (one per run)
+reports/quality/

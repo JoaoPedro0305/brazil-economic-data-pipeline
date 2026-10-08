@@ -66,6 +66,86 @@ Loading the full history twice:
 | 1st load | 16,822 | 0 | 0 | 1.2s |
 | 2nd load (same data) | 0 | 0 | 16,822 | 0.6s |
 
+## Questions answered with SQL
+
+The database answers questions that need more than one series. The queries are in [`sql/queries/`](sql/queries/), run with `python -m pipeline.queries`, and are tested on synthetic data with known answers (`tests/test_queries.py`).
+
+### 1. How did the dollar move during each Selic cycle?
+
+[`01_dollar_by_selic_cycle.sql`](sql/queries/01_dollar_by_selic_cycle.sql) finds every Copom decision (a day the target changed), groups consecutive decisions in the same direction into cycles with window functions, and looks up the dollar before and after each cycle with `LATERAL` joins.
+
+| Cycle | Period | Decisions | Selic | USD/BRL | Dollar |
+|---|---|---|---|---|---|
+| cut | Mar 2000 to Jan 2001 | 6 | 19.00% to 15.25% | 1.75 to 1.95 | +11.9% |
+| hike | Mar 2001 to Jul 2001 | 5 | 15.25% to 19.00% | 2.10 to 2.50 | +19.2% |
+| cut | Feb 2002 to Jul 2002 | 3 | 19.00% to 18.00% | 2.43 to 2.88 | +18.5% |
+| hike | Oct 2002 to Feb 2003 | 5 | 18.00% to 26.50% | 3.86 to 3.61 | -6.6% |
+| cut | Jun 2003 to Apr 2004 | 9 | 26.50% to 16.00% | 2.89 to 2.91 | +0.6% |
+| hike | Sep 2004 to May 2005 | 9 | 16.00% to 19.75% | 2.90 to 2.45 | -15.8% |
+| cut | Sep 2005 to Sep 2007 | 18 | 19.75% to 11.25% | 2.33 to 1.95 | -16.1% |
+| hike | Apr 2008 to Sep 2008 | 4 | 11.25% to 13.75% | 1.67 to 1.83 | +9.3% |
+| cut | Jan 2009 to Jul 2009 | 5 | 13.75% to 8.75% | 2.35 to 1.89 | -19.6% |
+| hike | Apr 2010 to Jul 2011 | 8 | 8.75% to 12.50% | 1.76 to 1.56 | -11.3% |
+| cut | Sep 2011 to Oct 2012 | 10 | 12.50% to 7.25% | 1.59 to 2.04 | +28.3% |
+| hike | Apr 2013 to Jul 2015 | 16 | 7.25% to 14.25% | 1.99 to 3.37 | +68.8% |
+| cut | Oct 2016 to Aug 2020 | 21 | 14.25% to 2.00% | 3.18 to 5.34 | +68.0% |
+| hike | Mar 2021 to Aug 2022 | 12 | 2.00% to 13.75% | 5.66 to 5.24 | -7.4% |
+| cut | Aug 2023 to May 2024 | 7 | 13.75% to 10.50% | 4.81 to 5.16 | +7.3% |
+| hike | Sep 2024 to Jun 2025 | 7 | 10.50% to 15.00% | 5.48 to 5.49 | +0.2% |
+| cut | Mar 2026 to Sep 2026 | 5 | 15.00% to 13.75% | 5.21 to 5.15 | -1.1% |
+
+**Rate direction alone does not explain the dollar.** In the 8 hiking cycles the dollar rose in 4 and fell in 4; in the 9 cutting cycles it rose in 6. The 2013-2015 hikes, from 7.25% to 14.25%, came with the dollar up 69%, during a fiscal crisis and recession. External shocks and fiscal risk weigh more than the Selic's direction.
+
+### 2. What was the real interest rate each year?
+
+[`02_real_interest_rate.sql`](sql/queries/02_real_interest_rate.sql) compounds monthly IPCA into annual inflation (`exp(sum(ln(1 + m))) - 1`, which matches IBGE's official figures, e.g. 12.53% in 2002 and 10.06% in 2021) and compares it with the year's average Selic target: real rate = (1 + Selic) / (1 + IPCA) - 1.
+
+| Year | Selic (avg) | IPCA | Real rate |
+|---|---|---|---|
+| 2000 | 17.60% | 5.97% | 10.97% |
+| 2001 | 17.46% | 7.67% | 9.09% |
+| 2002 | 19.22% | 12.53% | 5.95% |
+| 2003 | 23.52% | 9.30% | 13.01% |
+| 2004 | 16.38% | 7.60% | 8.16% |
+| 2005 | 19.14% | 5.69% | 12.72% |
+| 2006 | 15.32% | 3.14% | 11.80% |
+| 2007 | 12.04% | 4.46% | 7.26% |
+| 2008 | 12.45% | 5.90% | 6.18% |
+| 2009 | 10.14% | 4.31% | 5.59% |
+| 2010 | 9.90% | 5.91% | 3.77% |
+| 2011 | 11.76% | 6.50% | 4.93% |
+| 2012 | 8.63% | 5.84% | 2.64% |
+| 2013 | 8.29% | 5.91% | 2.25% |
+| 2014 | 10.96% | 6.41% | 4.28% |
+| 2015 | 13.47% | 10.67% | 2.53% |
+| 2016 | 14.18% | 6.29% | 7.42% |
+| 2017 | 10.15% | 2.95% | 7.00% |
+| 2018 | 6.58% | 3.75% | 2.73% |
+| 2019 | 6.04% | 4.31% | 1.66% |
+| 2020 | 2.89% | 4.52% | **-1.56%** |
+| 2021 | 4.54% | 10.06% | **-5.02%** |
+| 2022 | 12.55% | 5.78% | 6.39% |
+| 2023 | 13.30% | 4.62% | 8.29% |
+| 2024 | 10.94% | 4.83% | 5.83% |
+| 2025 | 14.42% | 4.26% | 9.74% |
+
+Only 2 years had a negative real rate, 2020 and 2021, when the Selic was cut to 2% and inflation came back. The highest was 2003 (13.01%). The average target is an approximation of what an investor actually earned.
+
+### 3. Does a weaker real show up in inflation, and how fast?
+
+[`03_dollar_pass_through.sql`](sql/queries/03_dollar_pass_through.sql) compares the dollar's change over 12 months with 12-month IPCA measured 0 to 18 months later (exchange-rate pass-through).
+
+| Inflation measured ... | Months compared | Correlation with the dollar's 12-month change |
+|---|---|---|
+| the same month | 308 | 0.17 |
+| 3 months later | 305 | 0.32 |
+| 6 months later | 302 | **0.43** |
+| 9 months later | 299 | **0.43** |
+| 12 months later | 296 | 0.37 |
+| 18 months later | 290 | 0.33 |
+
+**The dollar reaches inflation with a lag of about 6 to 9 months:** the correlation is weak in the same month (0.17) and peaks at 0.43 after 6-9 months. This is the pattern described in the economics literature, found here with 26 years of data. It is a correlation, not a causal estimate: other factors (commodity prices, the output gap, the Selic itself) move together with both.
+
 ## Running the pipeline
 
 `python -m pipeline.run` runs extract, transform, load and quality checks for every series:
@@ -152,6 +232,7 @@ source .venv/bin/activate        # Windows: .venv\Scriptsctivate
 pip install -r requirements-dev.txt
 docker compose up -d db          # PostgreSQL on localhost:5433
 python -m pipeline.run
+python -m pipeline.queries       # analysis queries as Markdown tables
 pytest                           # database tests use a separate economy_test database
 ```
 

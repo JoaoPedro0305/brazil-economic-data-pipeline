@@ -31,5 +31,5 @@ SERIES = (
 
 def database_url() -> str:
     return os.environ.get(
-        "DATABASE_URL", "postgresql://pipeline:pipeline@localhost:5432/economy"
+        "DATABASE_URL", "postgresql://pipeline:pipeline@localhost:5433/economy"
     )

@@ -38,13 +38,39 @@ History starts on 2000-01-01.
 
 On the full history (2000 to today) the API data came back clean: 16,822 rows, nothing rejected, no duplicates. The rules are still tested with deliberately broken inputs in `tests/test_transform.py`.
 
+## Database
+
+PostgreSQL 17 runs in Docker (`docker-compose.yml`, host port 5433). The schema is in [`sql/schema.sql`](sql/schema.sql) and is applied by the pipeline itself, so it is safe to run more than once.
+
+| Table | Contents |
+|---|---|
+| `series` | one row per indicator: SGS code, description, unit, frequency |
+| `observations` | the values; primary key `(series_id, ref_date)`, so the database itself rejects duplicate dates |
+| `revisions` | values the Central Bank changed after they were first loaded (old and new value) |
+| `pipeline_runs` | one row per execution: start, end, status, rows inserted/updated/rejected |
+
+**Idempotent load** (`pipeline/load.py`), one transaction per series:
+
+1. `COPY` the clean rows into a temporary staging table (bulk load, much faster than row-by-row inserts);
+2. record changed values in `revisions`;
+3. `UPDATE` only the values that changed;
+4. `INSERT ... ON CONFLICT DO NOTHING` for new dates.
+
+Loading the full history twice:
+
+| | Inserted | Updated | Unchanged | Time |
+|---|---|---|---|---|
+| 1st load | 16,822 | 0 | 0 | 1.2s |
+| 2nd load (same data) | 0 | 0 | 16,822 | 0.6s |
+
 ## How to run
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-pytest
+docker compose up -d             # PostgreSQL on localhost:5433
+pytest                           # database tests use a separate economy_test database
 ```
 
 ## License

@@ -9,8 +9,14 @@ ROOT = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT / "data" / "raw"
 CLEAN_DIR = ROOT / "data" / "clean"
 
+LOG_DIR = ROOT / "logs"
+
 # History starts here on the first run; later runs are incremental.
 START_DATE = date(2000, 1, 1)
+
+# Incremental runs re-fetch this many days before the last loaded date, so
+# values the Central Bank revises after publication are picked up.
+LOOKBACK_DAYS = {"business_daily": 30, "calendar_daily": 30, "monthly": 90}
 
 
 @dataclass(frozen=True)

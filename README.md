@@ -63,6 +63,19 @@ Loading the full history twice:
 | 1st load | 16,822 | 0 | 0 | 1.2s |
 | 2nd load (same data) | 0 | 0 | 16,822 | 0.6s |
 
+## Running the pipeline
+
+`python -m pipeline.run` runs extract, transform and load for every series:
+
+- **Incremental:** the first run fetches the full history; later runs start 30 days (daily series) or 90 days (IPCA) before the last loaded date. Re-fetching that window is how revisions by the Central Bank get picked up, and the idempotent load means it never duplicates rows. `--full` re-fetches everything.
+- **Isolated failures:** if one series fails (say, the API is down for the dollar), the others are still loaded and committed. The run is marked `failed`, the error is recorded and the process exits with code 1, so a scheduler can alert on it.
+- **Run log:** each execution is recorded in `pipeline_runs` (status, timings, totals, per-series details as JSON) and in `logs/pipeline.log`.
+
+| Run | Range fetched | Rows extracted | Time |
+|---|---|---|---|
+| Full history | 2000-01-01 to today | 16,822 | ~50s (API) + 1.2s (load) |
+| Daily incremental | last 30-90 days | ~58 | 0.7s |
+
 ## How to run
 
 ```bash
@@ -70,6 +83,7 @@ python -m venv .venv
 source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 docker compose up -d             # PostgreSQL on localhost:5433
+python -m pipeline.run           # first run loads the full history
 pytest                           # database tests use a separate economy_test database
 ```
 

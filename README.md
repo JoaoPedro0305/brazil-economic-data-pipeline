@@ -17,28 +17,23 @@ Economic data is public but scattered across API calls with quirks: request limi
 ## Architecture
 
 ```mermaid
-flowchart LR
+flowchart TD
     api["Central Bank SGS API<br/>Selic, IPCA, USD/BRL"]
 
     subgraph run["python -m pipeline.run, daily at 19:00"]
-        extract["extract<br/>10-year windows, retries"]
-        transform["transform<br/>parse, dedupe, reject"]
-        load["load<br/>COPY, staging, upsert"]
-        quality{"8 quality checks"}
+        extract["1. extract<br/>10-year windows, retries"]
+        transform["2. transform<br/>parse, dedupe, reject"]
+        load["3. load<br/>COPY into staging, upsert"]
+        quality{"4. quality checks"}
+        extract --> transform --> load --> quality
     end
 
-    raw[("data/raw<br/>JSON as received")]
-    clean[("data/clean<br/>CSV and rejected rows")]
-    db[("PostgreSQL<br/>observations, revisions,<br/>pipeline_runs, quality_results")]
-    report["reports/quality<br/>Markdown per run"]
-    sql["sql/queries<br/>analysis"]
-
-    api --> extract --> transform --> load --> quality
-    extract --> raw
-    transform --> clean
-    quality -- "pass: commit" --> db
-    quality -- "fail: rollback" --> report
-    db --> sql
+    api --> extract
+    extract -.-> raw[("data/raw<br/>JSON as received")]
+    transform -.-> clean[("data/clean<br/>CSV and rejected rows")]
+    quality -- "pass: commit" --> db[("PostgreSQL")]
+    quality -- "fail: rollback" --> report["reports/quality<br/>what failed and why"]
+    db --> sql["sql/queries<br/>analysis"]
 ```
 
 Each series goes through the same steps in one database transaction. The raw API response and the clean table are kept on disk, so a run can be inspected or replayed without calling the API again. The quality checks run on the full series as it would look after the load, before anything is committed.

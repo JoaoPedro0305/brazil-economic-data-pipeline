@@ -241,7 +241,7 @@ Local development and tests:
 python -m venv .venv
 source .venv/bin/activate          # on Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
-docker compose up -d db            # PostgreSQL on localhost:5433
+docker compose up -d db            # PostgreSQL on 127.0.0.1:5433
 python -m pipeline.run
 python -m pipeline.queries         # analysis queries as Markdown tables
 pytest                             # database tests use a separate economy_test database

@@ -54,7 +54,7 @@ def load_observations(conn: psycopg.Connection, series: Series, clean: pd.DataFr
         upsert_series(conn, series)
         conn.execute("CREATE TEMP TABLE staging (ref_date DATE, value NUMERIC(14,6)) ON COMMIT DROP")
         with conn.cursor().copy("COPY staging (ref_date, value) FROM STDIN") as copy:
-            for ref_date, value in zip(clean["ref_date"], clean["value"]):
+            for ref_date, value in zip(clean["ref_date"], clean["value"], strict=True):
                 copy.write_row((ref_date, value))
 
         updated = conn.execute(

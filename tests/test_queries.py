@@ -80,7 +80,7 @@ def test_pass_through_correlation(conn):
     load(conn, USD, [(d, v) for d, v in usd])
     usd_by_month = {d: v for d, v in usd}
     ipca = []
-    for i, m in enumerate(months):
+    for m in months:
         src = (m - pd.DateOffset(months=6)).date()
         prev = (m - pd.DateOffset(months=7)).date()
         change = (usd_by_month[src] / usd_by_month[prev] - 1) * 10 if prev in usd_by_month else 0.0

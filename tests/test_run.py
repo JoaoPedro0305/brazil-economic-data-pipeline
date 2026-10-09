@@ -32,10 +32,8 @@ def fake_api(failing_codes=(), bad_values=None):
         if code in failing_codes:
             return 502, {}, "Bad Gateway"
         days = [start + timedelta(n) for n in range((end - start).days + 1)]
-        if code == 433:
-            days = [d for d in days if d.day == 1]
-        else:
-            days = [d for d in days if d.weekday() < 5]
+        published = (lambda d: d.day == 1) if code == 433 else (lambda d: d.weekday() < 5)
+        days = [d for d in days if published(d)]
         bad = (bad_values or {}).get(code, {})
         body = [{"data": d.strftime("%d/%m/%Y"), "valor": bad.get(d, "5.0000")} for d in days]
         if not body:
@@ -161,7 +159,8 @@ def test_bad_value_blocks_the_series_and_nothing_lands(conn, tmp_path):
     loaded = dict(conn.execute("SELECT series_id, count(*) FROM observations GROUP BY 1").fetchall())
     assert "usd_brl" not in loaded and loaded["ipca_monthly"] > 0  # IPCA was fine and is kept
     failed = conn.execute(
-        "SELECT check_name, failures, sample->>0 FROM quality_results WHERE series_id = 'usd_brl' AND NOT passed ORDER BY 1"
+        "SELECT check_name, failures, sample->>0 FROM quality_results "
+        "WHERE series_id = 'usd_brl' AND NOT passed ORDER BY 1"
     ).fetchall()
     assert failed == [("max_jump", 2, "2026-10-07: 5.0 -> 55.0 (+1000.0 %)"), ("value_range", 1, "2026-10-07: 55.0")]
     report = (tmp_path / "reports" / "latest.md").read_text(encoding="utf-8")

@@ -81,7 +81,10 @@ def _fmt_run(start, end, n, unit) -> str:
 
 def check_required(s, df) -> CheckResult:
     bad = df[df["ref_date"].isna() | df["value"].isna()]
-    sample = [f"{d.date() if pd.notna(d) else 'no date'}: value={v}" for d, v in zip(bad["ref_date"], bad["value"])]
+    sample = [
+        f"{d.date() if pd.notna(d) else 'no date'}: value={v}"
+        for d, v in zip(bad["ref_date"], bad["value"], strict=True)
+    ]
     return _result(
         s,
         "required_values",
@@ -112,7 +115,7 @@ def check_range(s, df, r: Rules) -> CheckResult:
         s,
         "value_range",
         "error",
-        [f"{d.date()}: {x}" for d, x in zip(bad["ref_date"], bad["value"])],
+        [f"{d.date()}: {x}" for d, x in zip(bad["ref_date"], bad["value"], strict=True)],
         f"all values within [{r.min_value}, {r.max_value}]",
         f"{len(bad)} value(s) outside [{r.min_value}, {r.max_value}] {s.unit}",
     )
@@ -179,7 +182,7 @@ def check_jumps(s, df, r: Rules) -> CheckResult:
     bad = v[change.abs() > r.max_jump]
     sample = [
         f"{d.date()}: {p} -> {x} ({c:+.1f}{' %' if r.jump_unit == 'pct' else ' pp'})"
-        for d, p, x, c in zip(bad["ref_date"], prev[bad.index], bad["value"], change[bad.index])
+        for d, p, x, c in zip(bad["ref_date"], prev[bad.index], bad["value"], change[bad.index], strict=True)
     ]
     unit = "%" if r.jump_unit == "pct" else " pp"
     return _result(

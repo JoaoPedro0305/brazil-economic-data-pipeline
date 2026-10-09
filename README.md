@@ -222,8 +222,10 @@ The schedule was verified by running the same image with an every-minute crontab
 
 ## Continuous integration
 
-- **[`tests`](.github/workflows/tests.yml)**, on every push and pull request: the full suite on Python 3.11, 3.12 and 3.13 against a PostgreSQL service container, plus a Docker image build. Locally, database tests are skipped when PostgreSQL is not running; in CI `REQUIRE_DB=1` turns that skip into a failure, so the badge can never be green with the database tests silently skipped.
+- **[`tests`](.github/workflows/tests.yml)**, on every push and pull request: [ruff](https://docs.astral.sh/ruff/) lint and format check (including bugbear and bandit security rules), the full suite on Python 3.11, 3.12 and 3.13 against a PostgreSQL service container, and a Docker image build. Locally, database tests are skipped when PostgreSQL is not running; in CI `REQUIRE_DB=1` turns that skip into a failure, so the badge can never be green with the database tests silently skipped.
 - **[`live data`](.github/workflows/live-data.yml)**, weekly and whenever the pipeline code changes: the tests mock the API, so this job runs the real pipeline against the live API, from 2000 to today, on an empty database. A change in the API format or real data breaking a quality rule fails here. The quality report is published on the run page.
+- **Dependencies** are pinned to exact versions, as is the Python base image, so every build is the same. [Dependabot](.github/dependabot.yml) opens a weekly pull request for new versions of Python packages, GitHub Actions and the base image, and each one has to pass the CI above.
+- **Changes go through pull requests:** work happens on a branch and is merged into `main` after the checks pass.
 
 ## How to run
 
@@ -245,9 +247,10 @@ docker compose up -d db            # PostgreSQL on 127.0.0.1:5433
 python -m pipeline.run
 python -m pipeline.queries         # analysis queries as Markdown tables
 pytest                             # database tests use a separate economy_test database
+ruff check . && ruff format --check .
 ```
 
-The database is exposed on port 5433 so it does not clash with a local PostgreSQL on 5432. Docker Compose reads overrides (user, password, port) from a `.env` file, see [`.env.example`](.env.example); the pipeline reads the connection string from the `DATABASE_URL` environment variable.
+The database listens on 127.0.0.1 only, so it is reachable from this machine and not from the network, on port 5433 so it does not clash with a local PostgreSQL on 5432. Docker Compose reads overrides (user, password, port) from a `.env` file, see [`.env.example`](.env.example); the pipeline reads the connection string from the `DATABASE_URL` environment variable.
 
 ## Project structure
 

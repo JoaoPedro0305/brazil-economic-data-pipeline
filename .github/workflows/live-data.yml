@@ -63,7 +63,7 @@ jobs:
 
       - name: Keep report and log as artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: live-run
           path: |

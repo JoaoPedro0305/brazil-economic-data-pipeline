@@ -50,7 +50,9 @@ def test_sends_dates_in_brazilian_format():
 
 @responses.activate
 def test_404_value_not_found_is_empty_not_error():
-    responses.get(URL, status=404, json={"erro": {"statusCode": 404, "detail": "SGSNegocioException: Value(s) not found"}})
+    responses.get(
+        URL, status=404, json={"erro": {"statusCode": 404, "detail": "SGSNegocioException: Value(s) not found"}}
+    )
     assert fetch_window(requests.Session(), 1, date(2026, 10, 3), date(2026, 10, 4)) == []
 
 

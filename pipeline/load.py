@@ -52,9 +52,7 @@ def upsert_series(conn: psycopg.Connection, series: Series) -> None:
 def load_observations(conn: psycopg.Connection, series: Series, clean: pd.DataFrame) -> LoadResult:
     with conn.transaction():
         upsert_series(conn, series)
-        conn.execute(
-            "CREATE TEMP TABLE staging (ref_date DATE, value NUMERIC(14,6)) ON COMMIT DROP"
-        )
+        conn.execute("CREATE TEMP TABLE staging (ref_date DATE, value NUMERIC(14,6)) ON COMMIT DROP")
         with conn.cursor().copy("COPY staging (ref_date, value) FROM STDIN") as copy:
             for ref_date, value in zip(clean["ref_date"], clean["value"]):
                 copy.write_row((ref_date, value))
@@ -100,7 +98,5 @@ def read_series(conn: psycopg.Connection, series: Series) -> pd.DataFrame:
 
 
 def last_loaded_date(conn: psycopg.Connection, series: Series) -> date | None:
-    row = conn.execute(
-        "SELECT max(ref_date) FROM observations WHERE series_id = %s", (series.name,)
-    ).fetchone()
+    row = conn.execute("SELECT max(ref_date) FROM observations WHERE series_id = %s", (series.name,)).fetchone()
     return row[0]

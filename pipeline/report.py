@@ -17,8 +17,7 @@ def save_checks(conn: psycopg.Connection, run_id: int, checks: list[CheckResult]
                 (run_id, series_id, check_name, severity, passed, failures, detail, sample)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
             """,
-            [(run_id, c.series, c.check, c.severity, c.passed, c.failures, c.detail, Jsonb(c.sample))
-             for c in checks],
+            [(run_id, c.series, c.check, c.severity, c.passed, c.failures, c.detail, Jsonb(c.sample)) for c in checks],
         )
 
 

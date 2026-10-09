@@ -25,15 +25,15 @@ from pipeline.config import Series
 class Rules:
     min_value: float
     max_value: float
-    max_jump: float          # max change between consecutive observations
-    jump_unit: str           # "pct" (relative) or "pp" (absolute)
+    max_jump: float  # max change between consecutive observations
+    jump_unit: str  # "pct" (relative) or "pp" (absolute)
     max_missing_weekdays: int  # business_daily only: longest allowed run of missing weekdays
-    max_age_days: int        # freshness: how old the latest value may be
+    max_age_days: int  # freshness: how old the latest value may be
 
 
 RULES = {
     "selic_target": Rules(0, 50, 5.0, "pp", 0, 3),
-    "ipca_monthly": Rules(-3, 5, 3.0, "pp", 0, 75),   # IPCA is published ~10 days after month end
+    "ipca_monthly": Rules(-3, 5, 3.0, "pp", 0, 75),  # IPCA is published ~10 days after month end
     "usd_brl": Rules(1, 10, 15.0, "pct", 3, 5),
 }
 
@@ -42,7 +42,7 @@ RULES = {
 class CheckResult:
     series: str
     check: str
-    severity: str            # "error" blocks the load, "warn" does not
+    severity: str  # "error" blocks the load, "warn" does not
     passed: bool
     failures: int
     detail: str
@@ -53,8 +53,15 @@ class CheckResult:
 
 
 def _result(series, check, severity, bad: list[str], detail_ok: str, detail_bad: str) -> CheckResult:
-    return CheckResult(series.name, check, severity, passed=not bad, failures=len(bad),
-                       detail=detail_bad if bad else detail_ok, sample=bad[:5])
+    return CheckResult(
+        series.name,
+        check,
+        severity,
+        passed=not bad,
+        failures=len(bad),
+        detail=detail_bad if bad else detail_ok,
+        sample=bad[:5],
+    )
 
 
 def _runs(dates: pd.DatetimeIndex, step) -> list[tuple[pd.Timestamp, pd.Timestamp, int]]:
@@ -75,23 +82,40 @@ def _fmt_run(start, end, n, unit) -> str:
 def check_required(s, df) -> CheckResult:
     bad = df[df["ref_date"].isna() | df["value"].isna()]
     sample = [f"{d.date() if pd.notna(d) else 'no date'}: value={v}" for d, v in zip(bad["ref_date"], bad["value"])]
-    return _result(s, "required_values", "error", sample,
-                   "no missing dates or values", f"{len(bad)} row(s) with a missing date or value")
+    return _result(
+        s,
+        "required_values",
+        "error",
+        sample,
+        "no missing dates or values",
+        f"{len(bad)} row(s) with a missing date or value",
+    )
 
 
 def check_unique(s, df) -> CheckResult:
     dup = df["ref_date"].dropna()
     dup = dup[dup.duplicated(keep=False)].drop_duplicates()
-    return _result(s, "unique_dates", "error", [str(d.date()) for d in dup],
-                   "one value per date", f"{len(dup)} date(s) appear more than once")
+    return _result(
+        s,
+        "unique_dates",
+        "error",
+        [str(d.date()) for d in dup],
+        "one value per date",
+        f"{len(dup)} date(s) appear more than once",
+    )
 
 
 def check_range(s, df, r: Rules) -> CheckResult:
     v = df.dropna(subset=["value"])
     bad = v[(v["value"] < r.min_value) | (v["value"] > r.max_value)]
-    return _result(s, "value_range", "error", [f"{d.date()}: {x}" for d, x in zip(bad["ref_date"], bad["value"])],
-                   f"all values within [{r.min_value}, {r.max_value}]",
-                   f"{len(bad)} value(s) outside [{r.min_value}, {r.max_value}] {s.unit}")
+    return _result(
+        s,
+        "value_range",
+        "error",
+        [f"{d.date()}: {x}" for d, x in zip(bad["ref_date"], bad["value"])],
+        f"all values within [{r.min_value}, {r.max_value}]",
+        f"{len(bad)} value(s) outside [{r.min_value}, {r.max_value}] {s.unit}",
+    )
 
 
 def check_calendar(s, df) -> CheckResult:
@@ -111,8 +135,14 @@ def check_calendar(s, df) -> CheckResult:
 def check_future(s, df, today: date) -> CheckResult:
     bad = df["ref_date"].dropna()
     bad = bad[bad > pd.Timestamp(today)]
-    return _result(s, "no_future_dates", "error", [str(x.date()) for x in bad],
-                   f"no dates after {today}", f"{len(bad)} date(s) after {today}")
+    return _result(
+        s,
+        "no_future_dates",
+        "error",
+        [str(x.date()) for x in bad],
+        f"no dates after {today}",
+        f"{len(bad)} date(s) after {today}",
+    )
 
 
 def check_gaps(s, df, r: Rules) -> CheckResult:
@@ -147,12 +177,19 @@ def check_jumps(s, df, r: Rules) -> CheckResult:
     prev = v["value"].shift()
     change = (v["value"] / prev - 1) * 100 if r.jump_unit == "pct" else v["value"] - prev
     bad = v[change.abs() > r.max_jump]
-    sample = [f"{d.date()}: {p} -> {x} ({c:+.1f}{' %' if r.jump_unit == 'pct' else ' pp'})"
-              for d, p, x, c in zip(bad["ref_date"], prev[bad.index], bad["value"], change[bad.index])]
+    sample = [
+        f"{d.date()}: {p} -> {x} ({c:+.1f}{' %' if r.jump_unit == 'pct' else ' pp'})"
+        for d, p, x, c in zip(bad["ref_date"], prev[bad.index], bad["value"], change[bad.index])
+    ]
     unit = "%" if r.jump_unit == "pct" else " pp"
-    return _result(s, "max_jump", "error", sample,
-                   f"no change bigger than {r.max_jump}{unit} between consecutive values",
-                   f"{len(bad)} change(s) bigger than {r.max_jump}{unit}")
+    return _result(
+        s,
+        "max_jump",
+        "error",
+        sample,
+        f"no change bigger than {r.max_jump}{unit} between consecutive values",
+        f"{len(bad)} change(s) bigger than {r.max_jump}{unit}",
+    )
 
 
 def check_freshness(s, df, r: Rules, today: date) -> CheckResult:
@@ -161,18 +198,25 @@ def check_freshness(s, df, r: Rules, today: date) -> CheckResult:
         return _result(s, "freshness", "warn", ["no data"], "", "series has no data")
     age = (pd.Timestamp(today) - latest).days
     bad = [f"latest {latest.date()} is {age} days old"] if age > r.max_age_days else []
-    return _result(s, "freshness", "warn", bad,
-                   f"latest value {latest.date()} ({age} days old, limit {r.max_age_days})",
-                   f"latest value is {age} days old (limit {r.max_age_days})")
+    return _result(
+        s,
+        "freshness",
+        "warn",
+        bad,
+        f"latest value {latest.date()} ({age} days old, limit {r.max_age_days})",
+        f"latest value is {age} days old (limit {r.max_age_days})",
+    )
 
 
 def check_series(df: pd.DataFrame, series: Series, today: date, rules: Rules | None = None) -> list[CheckResult]:
     """Run every check on one series. df needs `ref_date` and `value` columns."""
     r = rules or RULES[series.name]
-    df = pd.DataFrame({
-        "ref_date": pd.to_datetime(df["ref_date"], errors="coerce"),
-        "value": pd.to_numeric(df["value"], errors="coerce"),
-    })
+    df = pd.DataFrame(
+        {
+            "ref_date": pd.to_datetime(df["ref_date"], errors="coerce"),
+            "value": pd.to_numeric(df["value"], errors="coerce"),
+        }
+    )
     return [
         check_required(series, df),
         check_unique(series, df),

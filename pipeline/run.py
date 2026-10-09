@@ -29,7 +29,15 @@ import requests
 from psycopg.types.json import Jsonb
 
 from pipeline.config import (
-    CLEAN_DIR, LOG_DIR, LOOKBACK_DAYS, RAW_DIR, REPORT_DIR, SERIES, START_DATE, Series, database_url,
+    CLEAN_DIR,
+    LOG_DIR,
+    LOOKBACK_DAYS,
+    RAW_DIR,
+    REPORT_DIR,
+    SERIES,
+    START_DATE,
+    Series,
+    database_url,
 )
 from pipeline.extract import fetch_series, save_raw
 from pipeline.load import connect, ensure_schema, last_loaded_date, load_observations, read_series
@@ -66,9 +74,7 @@ def start_date_for(conn: psycopg.Connection, series: Series, full: bool) -> date
 
 
 def start_run(conn: psycopg.Connection) -> int:
-    run_id = conn.execute(
-        "INSERT INTO pipeline_runs (status) VALUES ('running') RETURNING run_id"
-    ).fetchone()[0]
+    run_id = conn.execute("INSERT INTO pipeline_runs (status) VALUES ('running') RETURNING run_id").fetchone()[0]
     conn.commit()
     return run_id
 
@@ -81,14 +87,31 @@ def finish_run(conn: psycopg.Connection, summary: RunSummary, error: str | None)
                rejected = %s, details = %s, error = %s
          WHERE run_id = %s
         """,
-        (summary.status, summary.total("inserted"), summary.total("updated"),
-         summary.total("rejected"), Jsonb(summary.details), error, summary.run_id),
+        (
+            summary.status,
+            summary.total("inserted"),
+            summary.total("updated"),
+            summary.total("rejected"),
+            Jsonb(summary.details),
+            error,
+            summary.run_id,
+        ),
     )
     conn.commit()
 
 
-def run_series(conn, series: Series, today: date, run_at: datetime, full: bool, summary: RunSummary,
-               session: requests.Session, raw_dir: Path, clean_dir: Path, sleep) -> dict:
+def run_series(
+    conn,
+    series: Series,
+    today: date,
+    run_at: datetime,
+    full: bool,
+    summary: RunSummary,
+    session: requests.Session,
+    raw_dir: Path,
+    clean_dir: Path,
+    sleep,
+) -> dict:
     t0 = time.perf_counter()
     start = start_date_for(conn, series, full)
 
@@ -166,9 +189,18 @@ def _run_locked(conn, series, today, full, session, raw_dir, clean_dir, report_d
         try:
             d = run_series(conn, s, today, run_at, full, summary, session, raw_dir, clean_dir, sleep)
             summary.details[s.name] = d
-            log.info("%s: %s..%s extracted %d, inserted %d, updated %d, unchanged %d, rejected %d (%.2fs)",
-                     s.name, d["from"], d["to"], d["extracted"], d["inserted"], d["updated"],
-                     d["unchanged"], d["rejected"], d["seconds"])
+            log.info(
+                "%s: %s..%s extracted %d, inserted %d, updated %d, unchanged %d, rejected %d (%.2fs)",
+                s.name,
+                d["from"],
+                d["to"],
+                d["extracted"],
+                d["inserted"],
+                d["updated"],
+                d["unchanged"],
+                d["rejected"],
+                d["seconds"],
+            )
             for w in d["quality_warnings"]:
                 log.warning("%s: quality warning on %s", s.name, w)
         except Exception as err:  # keep going with the other series
@@ -184,9 +216,16 @@ def _run_locked(conn, series, today, full, session, raw_dir, clean_dir, report_d
     finish_run(conn, summary, "; ".join(errors) or None)
     if summary.checks:
         summary.report = write_report(report_dir, summary.run_id, summary.status, run_at, summary.checks)
-    log.info("run %d %s: inserted %d, updated %d, rejected %d, quality %d/%d checks passed",
-             summary.run_id, summary.status, summary.total("inserted"), summary.total("updated"),
-             summary.total("rejected"), sum(c.passed for c in summary.checks), len(summary.checks))
+    log.info(
+        "run %d %s: inserted %d, updated %d, rejected %d, quality %d/%d checks passed",
+        summary.run_id,
+        summary.status,
+        summary.total("inserted"),
+        summary.total("updated"),
+        summary.total("rejected"),
+        sum(c.passed for c in summary.checks),
+        len(summary.checks),
+    )
     return summary
 
 

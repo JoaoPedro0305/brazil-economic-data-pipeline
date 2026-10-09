@@ -7,8 +7,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pipeline}
       POSTGRES_DB: ${POSTGRES_DB:-economy}
     ports:
-      # 5433 on the host so it does not clash with a local Postgres on 5432
-      - "${POSTGRES_PORT:-5433}:5432"
+      # Bound to 127.0.0.1: only this machine can connect, not the local network.
+      # 5433 so it does not clash with a local Postgres on 5432.
+      - "127.0.0.1:${POSTGRES_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:

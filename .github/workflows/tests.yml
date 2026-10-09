@@ -7,6 +7,25 @@ on:
   workflow_dispatch:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      # Same ruff version as requirements-dev.txt, without installing everything else.
+      - name: Install ruff
+        run: pip install "$(grep '^ruff==' requirements-dev.txt)"
+
+      - name: Lint
+        run: ruff check --output-format=github .
+
+      - name: Check formatting
+        run: ruff format --check .
+
   pytest:
     runs-on: ubuntu-latest
     strategy:
@@ -30,7 +49,7 @@ jobs:
           --health-retries 10
 
     env:
-      TEST_DATABASE_URL: postgresql://pipeline:pipeline@localhost:5432/economy_test
+      TEST_DATABASE_URL: postgresql://pipeline:pipeline@127.0.0.1:5432/economy_test
       REQUIRE_DB: "1"   # database tests must run here, never be skipped
 
     steps:

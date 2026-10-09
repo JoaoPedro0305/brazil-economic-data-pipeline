@@ -40,30 +40,37 @@ def test_every_query_file_is_found():
 def test_selic_cycles_and_dollar_change(conn):
     # Selic: 10% -> hike to 11% (Feb 1) and 12% (Mar 1) -> cut to 11.5% (Apr 1)
     def selic_on(d):
-        return 12.0 if date(2024, 3, 1) <= d < date(2024, 4, 1) else (
-            11.0 if date(2024, 2, 1) <= d < date(2024, 3, 1) else (11.5 if d >= date(2024, 4, 1) else 10.0))
+        return (
+            12.0
+            if date(2024, 3, 1) <= d < date(2024, 4, 1)
+            else (11.0 if date(2024, 2, 1) <= d < date(2024, 3, 1) else (11.5 if d >= date(2024, 4, 1) else 10.0))
+        )
+
     load(conn, SELIC, [(d, selic_on(d)) for d in days(date(2024, 1, 1), date(2024, 4, 30))])
+
     # USD: 5.00 until Feb 1, 5.50 from Mar 1, 4.95 from Apr 1 (weekdays only)
     def usd_on(d):
         return 4.95 if d >= date(2024, 4, 1) else (5.50 if d >= date(2024, 3, 1) else 5.00)
+
     load(conn, USD, [(d, usd_on(d)) for d in days(date(2024, 1, 1), date(2024, 4, 30)) if d.weekday() < 5])
 
     columns, rows = query(conn, "01")
     assert columns[:6] == ["kind", "first_decision", "last_decision", "decisions", "selic_before", "selic_after"]
     hike, cut = rows
     assert hike[:6] == ("hike", date(2024, 2, 1), date(2024, 3, 1), 2, Decimal("10.000000"), Decimal("12.000000"))
-    assert hike[-1] == Decimal("10.0")      # 5.00 -> 5.50
+    assert hike[-1] == Decimal("10.0")  # 5.00 -> 5.50
     assert cut[:4] == ("cut", date(2024, 4, 1), date(2024, 4, 1), 1)
-    assert cut[-1] == Decimal("-10.0")      # 5.50 -> 4.95
+    assert cut[-1] == Decimal("-10.0")  # 5.50 -> 4.95
 
 
 def test_real_interest_rate_compounds_inflation(conn):
     load(conn, SELIC, [(d, 12.68) for d in days(date(2023, 1, 1), date(2023, 12, 31))])
-    load(conn, IPCA, [(date(2023, m, 1), 1.0) for m in range(1, 13)]
-         + [(date(2024, m, 1), 1.0) for m in range(1, 4)])   # 2024 incomplete: excluded
+    load(
+        conn, IPCA, [(date(2023, m, 1), 1.0) for m in range(1, 13)] + [(date(2024, m, 1), 1.0) for m in range(1, 4)]
+    )  # 2024 incomplete: excluded
     columns, rows = query(conn, "02")
     assert columns == ["year", "selic_avg_pct", "ipca_pct", "real_rate_pct"]
-    assert rows == [(2023, Decimal("12.68"), Decimal("12.68"), Decimal("0.00"))]   # 1.01^12 - 1 = 12.68%
+    assert rows == [(2023, Decimal("12.68"), Decimal("12.68"), Decimal("0.00"))]  # 1.01^12 - 1 = 12.68%
 
 
 def test_pass_through_correlation(conn):
@@ -73,7 +80,7 @@ def test_pass_through_correlation(conn):
     load(conn, USD, [(d, v) for d, v in usd])
     usd_by_month = {d: v for d, v in usd}
     ipca = []
-    for i, m in enumerate(months):
+    for m in months:
         src = (m - pd.DateOffset(months=6)).date()
         prev = (m - pd.DateOffset(months=7)).date()
         change = (usd_by_month[src] / usd_by_month[prev] - 1) * 10 if prev in usd_by_month else 0.0

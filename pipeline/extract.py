@@ -81,8 +81,9 @@ def fetch_window(
             last_error = err
             if attempt < RETRIES:
                 wait = 2 ** (attempt - 1)
-                log.warning("SGS %s %s..%s attempt %d failed (%s); retrying in %ss",
-                            code, start, end, attempt, err, wait)
+                log.warning(
+                    "SGS %s %s..%s attempt %d failed (%s); retrying in %ss", code, start, end, attempt, err, wait
+                )
                 sleep(wait)
 
     raise ExtractError(f"SGS {code} {start}..{end} failed after {RETRIES} attempts: {last_error}")
@@ -100,8 +101,7 @@ def fetch_series(
     records = []
     for window_start, window_end in date_windows(start, end):
         window = fetch_window(session, series.code, window_start, window_end, sleep=sleep)
-        log.info("SGS %s (%s) %s..%s: %d records", series.code, series.name,
-                 window_start, window_end, len(window))
+        log.info("SGS %s (%s) %s..%s: %d records", series.code, series.name, window_start, window_end, len(window))
         records.extend(window)
     return records
 

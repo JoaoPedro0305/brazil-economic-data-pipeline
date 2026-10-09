@@ -22,11 +22,11 @@ LOOKBACK_DAYS = {"business_daily": 30, "calendar_daily": 30, "monthly": 90}
 
 @dataclass(frozen=True)
 class Series:
-    code: int           # SGS code at the Central Bank API
-    name: str           # short id used in files and in the database
+    code: int  # SGS code at the Central Bank API
+    name: str  # short id used in files and in the database
     description: str
     unit: str
-    frequency: str      # "business_daily", "calendar_daily" or "monthly"
+    frequency: str  # "business_daily", "calendar_daily" or "monthly"
 
 
 SERIES = (
@@ -37,6 +37,4 @@ SERIES = (
 
 
 def database_url() -> str:
-    return os.environ.get(
-        "DATABASE_URL", "postgresql://pipeline:pipeline@localhost:5433/economy"
-    )
+    return os.environ.get("DATABASE_URL", "postgresql://pipeline:pipeline@127.0.0.1:5433/economy")

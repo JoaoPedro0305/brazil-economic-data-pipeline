@@ -1,3 +1,4 @@
 -r requirements.txt
-pytest>=8.0
-responses>=0.25
+pytest==9.1.1
+responses==0.26.3
+ruff==0.16.10

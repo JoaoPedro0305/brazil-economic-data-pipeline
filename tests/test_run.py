@@ -32,10 +32,8 @@ def fake_api(failing_codes=(), bad_values=None):
         if code in failing_codes:
             return 502, {}, "Bad Gateway"
         days = [start + timedelta(n) for n in range((end - start).days + 1)]
-        if code == 433:
-            days = [d for d in days if d.day == 1]
-        else:
-            days = [d for d in days if d.weekday() < 5]
+        published = (lambda d: d.day == 1) if code == 433 else (lambda d: d.weekday() < 5)
+        days = [d for d in days if published(d)]
         bad = (bad_values or {}).get(code, {})
         body = [{"data": d.strftime("%d/%m/%Y"), "valor": bad.get(d, "5.0000")} for d in days]
         if not body:
@@ -48,9 +46,17 @@ def fake_api(failing_codes=(), bad_values=None):
 
 
 def go(conn, tmp_path, **kwargs):
-    return run(conn, series=(USD, IPCA), today=TODAY, session=requests.Session(),
-               raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", report_dir=tmp_path / "reports",
-               sleep=NO_SLEEP, **kwargs)
+    return run(
+        conn,
+        series=(USD, IPCA),
+        today=TODAY,
+        session=requests.Session(),
+        raw_dir=tmp_path / "raw",
+        clean_dir=tmp_path / "clean",
+        report_dir=tmp_path / "reports",
+        sleep=NO_SLEEP,
+        **kwargs,
+    )
 
 
 @responses.activate
@@ -59,12 +65,19 @@ def test_first_run_loads_full_history(conn, tmp_path):
     summary = go(conn, tmp_path)
 
     assert summary.status == "success"
-    assert {(code, start) for code, start, _ in requested if start.year == 2000} == {(1, date(2000, 1, 1)), (433, date(2000, 1, 1))}
-    usd = conn.execute("SELECT count(*), min(ref_date), max(ref_date) FROM observations WHERE series_id = 'usd_brl'").fetchone()
+    assert {(code, start) for code, start, _ in requested if start.year == 2000} == {
+        (1, date(2000, 1, 1)),
+        (433, date(2000, 1, 1)),
+    }
+    usd = conn.execute(
+        "SELECT count(*), min(ref_date), max(ref_date) FROM observations WHERE series_id = 'usd_brl'"
+    ).fetchone()
     assert usd[1:] == (date(2000, 1, 3), TODAY)
     assert summary.details["usd_brl"]["inserted"] == usd[0]
 
-    row = conn.execute("SELECT status, inserted, finished_at IS NOT NULL, details ? 'usd_brl' FROM pipeline_runs").fetchone()
+    row = conn.execute(
+        "SELECT status, inserted, finished_at IS NOT NULL, details ? 'usd_brl' FROM pipeline_runs"
+    ).fetchone()
     assert row == ("success", summary.total("inserted"), True, True)
     assert (tmp_path / "raw" / "usd_brl").exists() and (tmp_path / "clean" / "ipca_monthly").exists()
 
@@ -79,7 +92,7 @@ def test_second_run_is_incremental_with_lookback(conn, tmp_path):
     summary = go(conn, tmp_path)
 
     assert dict((code, start) for code, start, _ in requested) == {
-        1: TODAY - timedelta(days=30),            # last USD date minus 30 days
+        1: TODAY - timedelta(days=30),  # last USD date minus 30 days
         433: date(2026, 10, 1) - timedelta(days=90),
     }
     assert summary.total("inserted") == 0
@@ -114,8 +127,16 @@ def test_failing_series_does_not_stop_the_others(conn, tmp_path):
 @responses.activate
 def test_failure_in_later_series_keeps_earlier_series(conn, tmp_path):
     fake_api(failing_codes={1})
-    run(conn, series=(IPCA, USD), today=TODAY, session=requests.Session(),
-        raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", report_dir=tmp_path / "reports", sleep=NO_SLEEP)
+    run(
+        conn,
+        series=(IPCA, USD),
+        today=TODAY,
+        session=requests.Session(),
+        raw_dir=tmp_path / "raw",
+        clean_dir=tmp_path / "clean",
+        report_dir=tmp_path / "reports",
+        sleep=NO_SLEEP,
+    )
     assert conn.execute("SELECT count(*) FROM observations WHERE series_id = 'ipca_monthly'").fetchone()[0] > 0
 
 
@@ -136,9 +157,10 @@ def test_bad_value_blocks_the_series_and_nothing_lands(conn, tmp_path):
     assert summary.status == "failed"
     assert "quality checks failed: value_range (1), max_jump (2)" in summary.details["usd_brl"]["error"]
     loaded = dict(conn.execute("SELECT series_id, count(*) FROM observations GROUP BY 1").fetchall())
-    assert "usd_brl" not in loaded and loaded["ipca_monthly"] > 0      # IPCA was fine and is kept
+    assert "usd_brl" not in loaded and loaded["ipca_monthly"] > 0  # IPCA was fine and is kept
     failed = conn.execute(
-        "SELECT check_name, failures, sample->>0 FROM quality_results WHERE series_id = 'usd_brl' AND NOT passed ORDER BY 1"
+        "SELECT check_name, failures, sample->>0 FROM quality_results "
+        "WHERE series_id = 'usd_brl' AND NOT passed ORDER BY 1"
     ).fetchall()
     assert failed == [("max_jump", 2, "2026-10-07: 5.0 -> 55.0 (+1000.0 %)"), ("value_range", 1, "2026-10-07: 55.0")]
     report = (tmp_path / "reports" / "latest.md").read_text(encoding="utf-8")
@@ -153,12 +175,20 @@ def test_blocked_incremental_load_keeps_previous_good_data(conn, tmp_path):
 
     responses.reset()
     fake_api(bad_values={1: {date(2026, 10, 9): "55.0000"}})
-    summary = run(conn, series=(USD,), today=date(2026, 10, 9), session=requests.Session(),
-                  raw_dir=tmp_path / "raw", clean_dir=tmp_path / "clean", report_dir=tmp_path / "reports", sleep=NO_SLEEP)
+    summary = run(
+        conn,
+        series=(USD,),
+        today=date(2026, 10, 9),
+        session=requests.Session(),
+        raw_dir=tmp_path / "raw",
+        clean_dir=tmp_path / "clean",
+        report_dir=tmp_path / "reports",
+        sleep=NO_SLEEP,
+    )
 
     assert summary.status == "failed"
     after = conn.execute("SELECT count(*), max(ref_date) FROM observations WHERE series_id = 'usd_brl'").fetchone()
-    assert after == before   # the bad day was rolled back, the history is untouched
+    assert after == before  # the bad day was rolled back, the history is untouched
 
 
 @responses.activate
@@ -171,7 +201,7 @@ def test_concurrent_run_is_skipped(conn, tmp_path, test_database):
         assert conn.execute("SELECT count(*) FROM pipeline_runs").fetchone()[0] == 0
         other.execute("SELECT pg_advisory_unlock(%s)", (LOCK_KEY,))
 
-    assert go(conn, tmp_path).status == "success"   # lock released: runs normally again
+    assert go(conn, tmp_path).status == "success"  # lock released: runs normally again
 
 
 @responses.activate

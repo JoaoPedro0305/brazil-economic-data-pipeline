@@ -33,14 +33,17 @@ def test_output_is_sorted_by_date():
 
 
 def test_invalid_rows_are_rejected_with_reason():
-    r = transform(USD, [
-        rec("08/10/2026", "5.0119"),
-        rec("31/02/2026", "5.00"),      # impossible date
-        rec("2026-10-08", "5.00"),      # wrong date format
-        rec("09/10/2026", ""),          # empty value
-        rec("10/10/2026", "5,01"),      # comma decimal
-        rec("11/10/2026", "abc"),
-    ])
+    r = transform(
+        USD,
+        [
+            rec("08/10/2026", "5.0119"),
+            rec("31/02/2026", "5.00"),  # impossible date
+            rec("2026-10-08", "5.00"),  # wrong date format
+            rec("09/10/2026", ""),  # empty value
+            rec("10/10/2026", "5,01"),  # comma decimal
+            rec("11/10/2026", "abc"),
+        ],
+    )
     assert len(r.clean) == 1
     assert r.rejected[["raw_date", "reason"]].values.tolist() == [
         ["31/02/2026", "invalid date"],

@@ -26,12 +26,14 @@ REJECTED_COLUMNS = ["series", "raw_date", "raw_value", "reason"]
 class TransformResult:
     clean: pd.DataFrame
     rejected: pd.DataFrame
-    duplicates: int     # identical rows removed
-    conflicts: int      # dates that had different values
+    duplicates: int  # identical rows removed
+    conflicts: int  # dates that had different values
 
     def summary(self) -> str:
-        return (f"{len(self.clean):,} clean, {len(self.rejected):,} rejected, "
-                f"{self.duplicates:,} duplicates, {self.conflicts:,} conflicts")
+        return (
+            f"{len(self.clean):,} clean, {len(self.rejected):,} rejected, "
+            f"{self.duplicates:,} duplicates, {self.conflicts:,} conflicts"
+        )
 
 
 def read_raw(path: Path) -> list[dict]:
@@ -51,12 +53,14 @@ def transform(series: Series, records: list[dict]) -> TransformResult:
     reason[ref_date.isna()] = "invalid date"
     bad = reason.notna()
 
-    rejected = pd.DataFrame({
-        "series": series.name,
-        "raw_date": raw["data"],
-        "raw_value": raw["valor"],
-        "reason": reason,
-    })[bad].reset_index(drop=True)
+    rejected = pd.DataFrame(
+        {
+            "series": series.name,
+            "raw_date": raw["data"],
+            "raw_value": raw["valor"],
+            "reason": reason,
+        }
+    )[bad].reset_index(drop=True)
 
     clean = pd.DataFrame({"series": series.name, "ref_date": ref_date, "value": value})[~bad]
 

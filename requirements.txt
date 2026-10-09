@@ -1,3 +1,5 @@
-requests>=2.32
-pandas>=2.2
-psycopg[binary]>=3.2
+# Exact versions so every build (local, CI, Docker image) is the same.
+# Dependabot opens a pull request when a new version is out.
+requests==2.34.2
+pandas==3.0.6
+psycopg[binary]==3.3.6

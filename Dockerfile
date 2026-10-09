@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.13.16-slim
 
 # supercronic: cron built for containers (keeps env vars, logs to stdout).
 # The binary is verified against the SHA-256 published on its GitHub release.

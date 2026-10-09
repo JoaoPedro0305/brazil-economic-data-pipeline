@@ -1,11 +1,11 @@
-# Weekly pull requests when a pinned dependency has a new version.
+# Monthly pull requests when a pinned dependency has a new version.
 # Each one runs the full CI before it can be merged.
 version: 2
 updates:
   - package-ecosystem: pip
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
     groups:
       minor-and-patch:
         update-types: [minor, patch]
@@ -13,9 +13,15 @@ updates:
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
 
   - package-ecosystem: docker
     directory: "/"
     schedule:
-      interval: weekly
+      interval: monthly
+    ignore:
+      # Stay on Python 3.13 (supported until 2029) and only take its patch
+      # releases, which carry bug and security fixes. Moving to a new Python
+      # version is a deliberate change, tested in CI first, not maintenance.
+      - dependency-name: python
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]

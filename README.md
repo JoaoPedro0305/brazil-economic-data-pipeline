@@ -224,7 +224,7 @@ The schedule was verified by running the same image with an every-minute crontab
 
 - **[`tests`](.github/workflows/tests.yml)**, on every push and pull request: [ruff](https://docs.astral.sh/ruff/) lint and format check (including bugbear and bandit security rules), the full suite on Python 3.11, 3.12 and 3.13 against a PostgreSQL service container, and a Docker image build. Locally, database tests are skipped when PostgreSQL is not running; in CI `REQUIRE_DB=1` turns that skip into a failure, so the badge can never be green with the database tests silently skipped.
 - **[`live data`](.github/workflows/live-data.yml)**, weekly and whenever the pipeline code changes: the tests mock the API, so this job runs the real pipeline against the live API, from 2000 to today, on an empty database. A change in the API format or real data breaking a quality rule fails here. The quality report is published on the run page.
-- **Dependencies** are pinned to exact versions, as is the Python base image, so every build is the same. [Dependabot](.github/dependabot.yml) opens a weekly pull request for new versions of Python packages, GitHub Actions and the base image, and each one has to pass the CI above.
+- **Dependencies** are pinned to exact versions, as is the Python base image, so every build is the same. [Dependabot](.github/dependabot.yml) opens a monthly pull request for new versions of Python packages, GitHub Actions and the base image (Python 3.13 patch releases only; moving to a new Python version is a deliberate change), and each one has to pass the CI above.
 - **Changes go through pull requests:** work happens on a branch and is merged into `main` after the checks pass.
 
 ## How to run
